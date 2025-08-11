@@ -1,4 +1,3 @@
-Absolutely! Here’s the **same professional README** but now enhanced with the **exact commands** the user should run at each step. You can copy-paste this directly to your GitHub or share as a guide:
 
 ---
 
@@ -66,133 +65,115 @@ nano integrity_checker.py
 
 The script will support these commands: `init`, `check`, and `update`.
 
+```
 #!/usr/bin/env python3
-
 import os
 import sys
 import hashlib
+import json
 
-HASH_FILE = ".hashes"
+HASH_DB = ".hashes"
 
 def compute_hash(file_path):
+    """Compute SHA-256 hash of a file."""
     sha256 = hashlib.sha256()
-    try:
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                sha256.update(chunk)
-        return sha256.hexdigest()
-    except (FileNotFoundError, PermissionError) as e:
-        print(f"⚠️ Skipping {file_path}: {e}")
-        return None
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
 def load_hashes():
-    hashes = {}
-    if os.path.exists(HASH_FILE):
-        with open(HASH_FILE, "r") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                path, file_hash = line.strip().split(" ", 1)
-                hashes[path] = file_hash
-    return hashes
+    """Load stored hashes from HASH_DB file."""
+    if not os.path.exists(HASH_DB):
+        return {}
+    with open(HASH_DB, "r") as f:
+        return json.load(f)
 
 def save_hashes(hashes):
-    with open(HASH_FILE, "w") as f:
-        for path, file_hash in hashes.items():
-            f.write(f"{path} {file_hash}\n")
+    """Save hashes to HASH_DB file."""
+    with open(HASH_DB, "w") as f:
+        json.dump(hashes, f, indent=2)
 
 def init(path):
-    if not os.path.exists(path):
-        print(f"Error: Path '{path}' does not exist.")
-        sys.exit(1)
-
+    """Initialize hashes for all files in a directory or single file."""
     hashes = {}
-    if os.path.isfile(path):
-        h = compute_hash(path)
-        if h:
-            hashes[path] = h
-    else:
+    if os.path.isdir(path):
         for root, _, files in os.walk(path):
             for file in files:
                 full_path = os.path.join(root, file)
-                h = compute_hash(full_path)
-                if h:
-                    hashes[full_path] = h
+                try:
+                    hashes[full_path] = compute_hash(full_path)
+                    print(f"Hashed: {full_path}")
+                except Exception as e:
+                    print(f"Error hashing {full_path}: {e}")
+    elif os.path.isfile(path):
+        hashes[path] = compute_hash(path)
+        print(f"Hashed: {path}")
+    else:
+        print(f"Path not found: {path}")
+        sys.exit(1)
     save_hashes(hashes)
     print("✅ Hashes stored successfully.")
 
 def check(path):
-    if not os.path.exists(path):
-        print(f"Error: Path '{path}' does not exist.")
-        sys.exit(1)
-
+    """Check current hashes against stored hashes."""
     stored_hashes = load_hashes()
     if not stored_hashes:
-        print(f"Error: No stored hashes found. Please run 'init' first.")
+        print("No stored hashes found. Please run init first.")
         sys.exit(1)
-
-    if os.path.isfile(path):
-        paths_to_check = [path]
-    else:
-        paths_to_check = []
+    
+    paths_to_check = []
+    if os.path.isdir(path):
         for root, _, files in os.walk(path):
             for file in files:
                 paths_to_check.append(os.path.join(root, file))
-
-    modified_files = False
-    for file_path in paths_to_check:
-        current_hash = compute_hash(file_path)
-        if not current_hash:
-            continue  # skip unreadable files
-
-        stored_hash = stored_hashes.get(file_path)
-        if stored_hash is None:
-            print(f"⚠️ {file_path} not found in stored hashes.")
-            modified_files = True
-        elif stored_hash == current_hash:
-            print(f"✅ Unmodified: {file_path}")
-        else:
-            print(f"❌ Modified: {file_path}")
-            modified_files = True
-
-    if modified_files:
-        print("\n⚠️ Some files have been modified or are new.")
+    elif os.path.isfile(path):
+        paths_to_check.append(path)
     else:
-        print("\n✅ All checked files are unmodified.")
+        print(f"Path not found: {path}")
+        sys.exit(1)
 
-def update(file_path):
-    if not os.path.isfile(file_path):
-        print(f"Error: File '{file_path}' does not exist or is not a file.")
+    for file_path in paths_to_check:
+        try:
+            current_hash = compute_hash(file_path)
+            stored_hash = stored_hashes.get(file_path)
+            if stored_hash is None:
+                print(f"⚠️ New file detected (no stored hash): {file_path}")
+            elif current_hash == stored_hash:
+                print(f"✅ Unmodified: {file_path}")
+            else:
+                print(f"❌ Modified: {file_path}")
+        except Exception as e:
+            print(f"⚠️ Skipping {file_path}: {e}")
+
+def update(path):
+    """Update stored hash for a file."""
+    if not os.path.isfile(path):
+        print(f"File not found: {path}")
         sys.exit(1)
 
     stored_hashes = load_hashes()
     if not stored_hashes:
-        print(f"Error: No stored hashes found. Please run 'init' first.")
+        print("No stored hashes found. Please run init first.")
         sys.exit(1)
 
-    new_hash = compute_hash(file_path)
-    if not new_hash:
-        print(f"Error: Could not read file '{file_path}'.")
-        sys.exit(1)
-
-    stored_hashes[file_path] = new_hash
-    save_hashes(stored_hashes)
-    print("🔄 Hash updated successfully.")
+    try:
+        new_hash = compute_hash(path)
+        stored_hashes[path] = new_hash
+        save_hashes(stored_hashes)
+        print(f"🔄 Hash updated successfully for {path}.")
+    except Exception as e:
+        print(f"Error updating hash for {path}: {e}")
 
 def print_usage():
-    print("Usage:")
-    print("  integrity_checker.py init <path>     # Initialize hashes for file or directory")
-    print("  integrity_checker.py check <path>    # Check files for modifications")
-    print("  integrity_checker.py update <file>   # Update hash for a single file")
+    print(f"Usage: {sys.argv[0]} <init|check|update> <path>")
 
-if __name__ == "__main__":
+def main():
     if len(sys.argv) != 3:
         print_usage()
         sys.exit(1)
-
-    command = sys.argv[1].lower()
+    command = sys.argv[1]
     path = sys.argv[2]
-
     if command == "init":
         init(path)
     elif command == "check":
@@ -200,9 +181,12 @@ if __name__ == "__main__":
     elif command == "update":
         update(path)
     else:
-        print(f"Unknown command: {command}")
         print_usage()
         sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+   ```
 
 ---
 
@@ -277,4 +261,5 @@ Phillip — DevOps Engineer passionate about security and automation.
 ```
 https://roadmap.sh/projects/file-integrity-checker
 ```
+
 
