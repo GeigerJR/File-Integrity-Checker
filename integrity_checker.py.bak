@@ -1,0 +1,67 @@
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+
+HASH_FILE = "hashes.json"
+
+def compute_hash(file_path):
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+def load_hashes():
+    if os.path.exists(HASH_FILE):
+        with open(HASH_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_hashes(hashes):
+    with open(HASH_FILE, "w") as f:
+        json.dump(hashes, f, indent=4)
+
+def init(path):
+    hashes = {}
+    path = Path(path)
+    if path.is_dir():
+        for file in path.rglob("*"):
+            if file.is_file():
+                hashes[str(file)] = compute_hash(file)
+    else:
+        hashes[str(path)] = compute_hash(path)
+    save_hashes(hashes)
+    print("✅ Hashes stored successfully.")
+
+def check(path):
+    stored_hashes = load_hashes()
+    path = Path(path)
+    current_hash = compute_hash(path)
+    if str(path) not in stored_hashes:
+        print("⚠️ File not found in stored hashes.")
+    elif stored_hashes[str(path)] == current_hash:
+        print("✅ Status: Unmodified")
+    else:
+        print("❌ Status: Modified (Hash mismatch)")
+
+def update(path):
+    stored_hashes = load_hashes()
+    path = Path(path)
+    stored_hashes[str(path)] = compute_hash(path)
+    save_hashes(stored_hashes)
+    print("🔄 Hash updated successfully.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="File Integrity Checker")
+    parser.add_argument("command", choices=["init", "check", "update"])
+    parser.add_argument("path", help="Path to file or directory")
+    args = parser.parse_args()
+
+    if args.command == "init":
+        init(args.path)
+    elif args.command == "check":
+        check(args.path)
+    elif args.command == "update":
+        update(args.path)
